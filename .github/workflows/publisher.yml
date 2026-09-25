@@ -22,15 +22,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Debug secrets presence
+      - name: Diagnose token
         env:
-          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          echo "FB_PAGE_ID length: ${#FB_PAGE_ID}"
-          echo "FB_PAGE_TOKEN length: ${#FB_PAGE_TOKEN}"
-          echo "GROQ_API_KEY length: ${#GROQ_API_KEY}"
+          echo "Length: ${#FB_PAGE_TOKEN}"
+          echo "Last 4 chars: ${FB_PAGE_TOKEN: -4}"
+          echo "First 8 chars: ${FB_PAGE_TOKEN:0:8}"
 
       - name: Run publisher script
         env:
