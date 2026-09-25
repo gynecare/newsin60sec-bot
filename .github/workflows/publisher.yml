@@ -1,0 +1,34 @@
+name: News in 60 Sec Auto Publisher
+
+on:
+  schedule:
+    # Times are in UTC. Pakistan Standard Time (PKT) is UTC+5.
+    # For 9:00 AM PKT, the UTC time is 04:00.
+    # For 2:00 PM PKT, the UTC time is 09:00.
+    # For 8:00 PM PKT, the UTC time is 15:00.
+    - cron: '0 4 * * *'
+    - cron: '0 9 * * *'
+    - cron: '0 15 * * *'
+  workflow_dispatch: # This allows you to run it manually for testing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run publisher script
+        env:
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python news_publisher.py
