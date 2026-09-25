@@ -1,24 +1,11 @@
-      - name: Debug secrets presence
-        run: |
-          echo "FB_PAGE_ID length: ${#FB_PAGE_ID}"
-          echo "FB_PAGE_TOKEN length: ${#FB_PAGE_TOKEN}"
-          echo "GROQ_API_KEY length: ${#GROQ_API_KEY}"
-        env:
-          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
-          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 name: News in 60 Sec Auto Publisher
 
 on:
   schedule:
-    # Times are in UTC. Pakistan Standard Time (PKT) is UTC+5.
-    # For 9:00 AM PKT, the UTC time is 04:00.
-    # For 2:00 PM PKT, the UTC time is 09:00.
-    # For 8:00 PM PKT, the UTC time is 15:00.
     - cron: '0 4 * * *'
     - cron: '0 9 * * *'
     - cron: '0 15 * * *'
-  workflow_dispatch: # This allows you to run it manually for testing
+  workflow_dispatch:
 
 jobs:
   publish:
@@ -35,9 +22,21 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Debug secrets presence
+        env:
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          echo "FB_PAGE_ID length: ${#FB_PAGE_ID}"
+          echo "FB_PAGE_TOKEN length: ${#FB_PAGE_TOKEN}"
+          echo "GROQ_API_KEY length: ${#GROQ_API_KEY}"
+
       - name: Run publisher script
         env:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: python news_publisher.py
+        run: |
+          mkdir -p logs
+          python news_publisher.py
