@@ -6,9 +6,8 @@ import requests
 import feedparser
 from datetime import datetime, date
 from difflib import SequenceMatcher
-from dotenv import load_dotenv
 
-# Force UTF-8 output on Windows console
+# Force UTF-8 output on Windows console (no-op on Linux/GitHub Actions)
 try:
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
@@ -18,7 +17,9 @@ except Exception:
 # ============================================================
 # CONFIGURATION
 # ============================================================
-load_dotenv()
+# load_dotenv()  # Disabled: GitHub Actions provides secrets as env vars
+#                # For local runs, uncomment the line above and the import below.
+# from dotenv import load_dotenv
 
 FB_PAGE_ID    = os.getenv("FB_PAGE_ID")
 FB_PAGE_TOKEN = os.getenv("FB_PAGE_TOKEN")
@@ -36,7 +37,7 @@ NEWS_SOURCES = [
 TEST_MODE = "--test" in sys.argv
 
 POSTED_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "posted_titles.json")
-SIMILARITY_THRESHOLD = 0.75   # 0.0 = anything matches, 1.0 = exact match only
+SIMILARITY_THRESHOLD = 0.75
 
 # ============================================================
 # STEP 0 — VERIFY TOKENS
@@ -52,7 +53,7 @@ def verify_config():
     if not GROQ_API_KEY:  missing.append("GROQ_API_KEY")
 
     if missing:
-        print(f"✗ Missing in .env: {', '.join(missing)}")
+        print(f"✗ Missing env vars: {', '.join(missing)}")
         sys.exit(1)
 
     print(f"✓ FB_PAGE_ID present (ends in ...{FB_PAGE_ID[-4:]})")
@@ -97,7 +98,6 @@ def verify_config():
 # DUPLICATE PREVENTION
 # ============================================================
 def load_posted_titles():
-    """Return list of headlines already posted today."""
     today = date.today().isoformat()
     if not os.path.exists(POSTED_LOG):
         return []
@@ -105,13 +105,12 @@ def load_posted_titles():
         with open(POSTED_LOG, "r", encoding="utf-8") as f:
             data = json.load(f)
         if data.get("date") != today:
-            return []   # Reset each day
+            return []
         return data.get("titles", [])
     except Exception:
         return []
 
 def save_posted_titles(titles):
-    """Overwrite the posted titles file with today's date and current list."""
     os.makedirs(os.path.dirname(POSTED_LOG), exist_ok=True)
     with open(POSTED_LOG, "w", encoding="utf-8") as f:
         json.dump({"date": date.today().isoformat(), "titles": titles}, f, ensure_ascii=False, indent=2)
@@ -120,7 +119,6 @@ def is_similar(a, b):
     return SequenceMatcher(None, a.lower(), b.lower()).ratio() >= SIMILARITY_THRESHOLD
 
 def filter_duplicates(articles, already_posted):
-    """Remove any article whose title is similar to something already posted today."""
     fresh = []
     for a in articles:
         if any(is_similar(a["title"], prev) for prev in already_posted):
@@ -128,6 +126,23 @@ def filter_duplicates(articles, already_posted):
             continue
         fresh.append(a)
     return fresh
+
+def dedupe_stories(articles):
+    """Remove near-duplicate stories within the same selection."""
+    if len(articles) < 2:
+        return articles
+    kept = []
+    for article in articles:
+        title = article.get("title", "")
+        duplicate = False
+        for existing in kept:
+            if is_similar(title, existing.get("title", "")):
+                duplicate = True
+                print(f"  ⊘ Dedup: '{title[:60]}' similar to '{existing.get('title','')[:60]}'")
+                break
+        if not duplicate:
+            kept.append(article)
+    return kept
 
 # ============================================================
 # STEP 1 — FETCH NEWS
@@ -212,11 +227,15 @@ def filter_pakistan_news(articles):
         f"{i+1}. [{a['source']}] {a['title']}" for i, a in enumerate(capped)
     )
 
-    prompt = f"""From the news headlines below, select ONLY stories primarily about Pakistan.
+    prompt = f"""From the news headlines below, select the most important stories primarily about Pakistan.
 
 Include: politics, economy, security, sports, culture, and anything involving Pakistani people, places, or interests.
 Exclude: global news where Pakistan is not central.
-Aim for 6 to 8 of the most important stories.
+
+CRITICAL RULE — avoid duplicates:
+If two or more headlines describe the SAME real-world event (even with different wording or sources), select ONLY ONE of them — the most informative version.
+
+Aim for 6 to 8 of the most important DISTINCT stories.
 
 Headlines:
 {headlines_text}
@@ -231,12 +250,14 @@ No other text."""
         indices = json.loads(result[start:end])
         selected = [capped[i - 1] for i in indices if 0 < i <= len(capped)]
         selected = selected[:8]
-        print(f"Selected {len(selected)} Pakistan-related stories\n")
-        return selected
+
+        deduped = dedupe_stories(selected)
+        print(f"Selected {len(selected)} stories → {len(deduped)} after dedup\n")
+        return deduped
     except Exception as e:
         print(f"  Filtering failed: {e}")
         print("  Fallback: using first 8 articles\n")
-        return capped[:8]
+        return dedupe_stories(capped[:8])
 
 # ============================================================
 # STEP 4 — GENERATE STRUCTURED BILINGUAL CARDS
@@ -361,7 +382,6 @@ def main():
 
     verify_config()
 
-    # Load today's already-posted titles
     already_posted = load_posted_titles()
     if already_posted:
         print(f"ℹ Already posted today: {len(already_posted)} stories — will skip duplicates\n")
@@ -371,7 +391,6 @@ def main():
         print("No articles fetched. Exiting.")
         return
 
-    # Remove stories already posted today
     fresh_articles = filter_duplicates(articles, already_posted)
     print(f"Fresh articles after duplicate filter: {len(fresh_articles)}\n")
 
@@ -389,7 +408,6 @@ def main():
 
     success = post_to_facebook(post_text)
 
-    # If posted (or in test mode), record the titles so future runs skip them
     if success and not TEST_MODE:
         new_titles = already_posted + [a["title"] for a in pakistan]
         save_posted_titles(new_titles)
